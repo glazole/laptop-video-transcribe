@@ -49,6 +49,7 @@ def pack_notes(notes: list[str], max_chars: int) -> list[str]:
 class Ollama:
     def __init__(self, url: str, model: str, timeout: int, num_ctx: int):
         self.url, self.model, self.timeout, self.num_ctx = url, model, timeout, num_ctx
+        self._model_was_used = False
 
     def chat(self, system: str, user: str, *, max_tokens: int = 1100) -> str:
         payload = {"model": self.model, "stream": False,
@@ -60,13 +61,24 @@ class Ollama:
                 response = client.post(f"{self.url}/api/chat", json=payload)
                 response.raise_for_status()
                 answer = response.json().get("message", {}).get("content", "").strip()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                raise RuntimeError(
+                    f"Модель {self.model} не установлена в Ollama. "
+                    f"Выполните: docker compose exec ollama ollama pull {self.model}; "
+                    f"затем проверьте: docker compose exec ollama ollama list"
+                ) from exc
+            raise RuntimeError(f"Ошибка Ollama ({self.model}): {exc}") from exc
         except (httpx.HTTPError, ValueError) as exc:
             raise RuntimeError(f"Ollama недоступна или модель отсутствует ({self.model}): {exc}") from exc
         if not answer:
             raise RuntimeError("Ollama вернула пустой ответ")
+        self._model_was_used = True
         return answer
 
     def unload(self):
+        if not self._model_was_used:
+            return
         try:
             with httpx.Client(timeout=15) as client:
                 client.post(f"{self.url}/api/generate", json={"model": self.model,
