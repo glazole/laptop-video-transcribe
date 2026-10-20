@@ -5,6 +5,7 @@ from .config import Settings
 from .pipeline import process, rerun_summary
 from .prompts import PROMPTS
 from .media import SUPPORTED
+from .downloads import stage_downloads
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 CONFIG = Settings()
@@ -16,15 +17,17 @@ def handle_upload(file_path: str, model: str, kind: str, progress=gr.Progress())
         result = process(file_path, model, kind, CONFIG,
                          progress=lambda text: progress(None, desc=text))
         progress(1, desc="Готово")
-        return result
+        job_id, transcript, summary, paths, status = result
+        return job_id, transcript, summary, stage_downloads(paths), status
     except Exception as exc:
         logging.exception("Processing failed")
         raise gr.Error(str(exc)) from exc
 
 def handle_summary(job_id: str, kind: str, progress=gr.Progress()):
     try:
-        return rerun_summary((job_id or "").strip(), kind, CONFIG,
+        summary, paths, status = rerun_summary((job_id or "").strip(), kind, CONFIG,
                              progress=lambda text: progress(None, desc=text))
+        return summary, stage_downloads(paths), status
     except Exception as exc:
         logging.exception("Summarization failed")
         raise gr.Error(str(exc)) from exc
